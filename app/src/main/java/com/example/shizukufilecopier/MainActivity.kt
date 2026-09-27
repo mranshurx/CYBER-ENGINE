@@ -19,6 +19,7 @@ import com.google.android.material.textfield.TextInputEditText
 import rikka.shizuku.Shizuku
 import java.io.BufferedReader
 import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.lang.reflect.Method
 import java.net.HttpURLConnection
@@ -60,13 +61,11 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Bind layouts and auth views
         authLayout = findViewById(R.id.authLayout)
         mainDashboardLayout = findViewById(R.id.mainDashboardLayout)
         keyInputEditText = findViewById(R.id.keyInputEditText)
         verifyKeyButton = findViewById(R.id.verifyKeyButton)
 
-        // Bind dashboard views
         statusText = findViewById(R.id.statusText)
         requestPermissionButton = findViewById(R.id.requestPermissionButton)
         pickFileButton = findViewById(R.id.pickFileButton)
@@ -88,7 +87,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun validateKeyWithServer(inputKey: String) {
         verifyKeyButton.isEnabled = false
-        Toast.initSafe
         Toast.makeText(this, "Verifying key...", Toast.LENGTH_SHORT).show()
 
         thread {
@@ -106,6 +104,7 @@ class MainActivity : AppCompatActivity() {
                         Toast.makeText(this, "Authorization Successful!", Toast.LENGTH_SHORT).show()
                         authLayout.visibility = View.GONE
                         mainDashboardLayout.visibility = View.VISIBLE
+                        extractAssetsToAnshuFolder()
                         checkShizukuStatus()
                         setupUI()
                     } else {
@@ -118,6 +117,34 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this, "Failed to connect to key server.", Toast.LENGTH_LONG).show()
                 }
             }
+        }
+    }
+
+    private fun extractAssetsToAnshuFolder() {
+        val baseDir = getExternalFilesDir(null) ?: return
+        val anshuTopDir = File(baseDir, "anshu-on-top")
+        if (!anshuTopDir.exists()) anshuTopDir.mkdirs()
+
+        try {
+            val assetManager = assets
+            val assetsList = assetManager.list("anshu-on-top")
+            if (assetsList != null && assetsList.isNotEmpty()) {
+                for (filename in assetsList) {
+                    val outFile = File(anshuTopDir, filename)
+                    assetManager.open("anshu-on-top/$filename").use { input ->
+                        FileOutputStream(outFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                }
+                selectedFileText.text = "Bundled files loaded into anshu-on-top"
+                appendLog("Successfully extracted hardcoded asset files into anshu-on-top.")
+            } else {
+                selectedFileText.text = "Source folder ready: anshu-on-top"
+                appendLog("No hardcoded assets found, folder ready.")
+            }
+        } catch (e: Exception) {
+            appendLog("Asset extraction error: ${e.message}")
         }
     }
 
@@ -153,11 +180,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         pickFileButton.setOnClickListener {
-            val baseDir = getExternalFilesDir(null)
-            val anshuTopDir = File(baseDir, "anshu-on-top")
-            if (!anshuTopDir.exists()) anshuTopDir.mkdirs()
-            selectedFileText.text = "Source folder ready: anshu-on-top"
-            appendLog("Source folder initialized at: ${anshuTopDir.absolutePath}")
+            extractAssetsToAnshuFolder()
         }
 
         copyButton.setOnClickListener {
@@ -171,7 +194,6 @@ class MainActivity : AppCompatActivity() {
 
         if (!anshuTopDir.exists()) anshuTopDir.mkdirs()
 
-        // Hardcoded destination path for Free Fire TH
         val destinationPath = "/sdcard/Android/data/com.dts.freefireth/files"
         appendLog("Target destination: $destinationPath")
 
@@ -193,7 +215,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             runOnUiThread {
-                appendLog("All files pasted successfully to Free Fire directory!")
+                appendLog("All bundled files pasted successfully to Free Fire directory!")
                 Toast.makeText(this, "Files Copied to Free Fire!", Toast.LENGTH_SHORT).show()
                 showFloatingMenu()
             }
