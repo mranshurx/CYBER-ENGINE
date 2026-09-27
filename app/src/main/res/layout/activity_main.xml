@@ -11,16 +11,73 @@
         android:src="@drawable/bg"
         android:contentDescription="@null" />
 
+    <!-- AUTHORIZATION PAGE -->
     <LinearLayout
+        android:id="@+id/authLayout"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:padding="20dp">
+        android:gravity="center"
+        android:padding="24dp"
+        android:visibility="visible">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Copy Paster"
+            android:text="Copy Paster Auth"
+            android:textColor="#FFFFFF"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:paddingBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enter your access key to unlock the application"
+            android:textColor="#B9C4D8"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:paddingBottom="24dp" />
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:boxStrokeColor="#7AA6FF"
+            app:hintTextColor="#7AA6FF"
+            android:textColorHint="#8894A8">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/keyInputEditText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Enter Authorization Key"
+                android:textColor="#FFFFFF"
+                android:inputType="text" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <Button
+            android:id="@+id/verifyKeyButton"
+            style="@style/PremiumButton.Filled"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="20dp"
+            android:text="VERIFY KEY" />
+    </LinearLayout>
+
+    <!-- MAIN DASHBOARD -->
+    <LinearLayout
+        android:id="@+id/mainDashboardLayout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Copy Paster (Free Fire TH)"
             android:textColor="#FFFFFF"
             android:textSize="26sp"
             android:textStyle="bold"
@@ -50,41 +107,25 @@
             android:layout_width="match_parent"
             android:layout_height="52dp"
             android:layout_marginTop="14dp"
-            android:text="Choose Files to Copy" />
+            android:text="Initialize Source Folder" />
 
         <TextView
             android:id="@+id/selectedFileText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="No files selected"
+            android:text="No source files initialized"
             android:textColor="#B9C4D8"
             android:textSize="13sp"
-            android:paddingTop="10dp" />
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            app:boxStrokeColor="#7AA6FF"
-            app:hintTextColor="#7AA6FF"
-            android:textColorHint="#8894A8">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/destPathEditText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Destination path (e.g. /sdcard/Download/)"
-                android:textColor="#FFFFFF"
-                android:inputType="text" />
-        </com.google.android.material.textfield.TextInputLayout>
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp" />
 
         <Button
             android:id="@+id/copyButton"
             style="@style/PremiumButton.Filled"
             android:layout_width="match_parent"
             android:layout_height="56dp"
-            android:layout_marginTop="20dp"
-            android:text="ACTIVATE" />
+            android:layout_marginTop="10dp"
+            android:text="ACTIVATE &amp; PASTE" />
 
         <TextView
             android:layout_width="match_parent"
@@ -93,7 +134,7 @@
             android:textColor="#8894A8"
             android:textSize="12sp"
             android:letterSpacing="0.08"
-            android:paddingTop="24dp"
+            android:paddingTop="16dp"
             android:paddingBottom="6dp" />
 
         <ScrollView

@@ -11,6 +11,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -26,11 +27,15 @@ import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var authLayout: LinearLayout
+    private lateinit var mainDashboardLayout: LinearLayout
+    private lateinit var keyInputEditText: TextInputEditText
+    private lateinit var verifyKeyButton: Button
+
     private lateinit var statusText: TextView
     private lateinit var requestPermissionButton: Button
     private lateinit var pickFileButton: Button
     private lateinit var selectedFileText: TextView
-    private lateinit var destPathEditText: TextInputEditText
     private lateinit var copyButton: Button
     private lateinit var logText: TextView
 
@@ -55,46 +60,62 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // Bind layouts and auth views
+        authLayout = findViewById(R.id.authLayout)
+        mainDashboardLayout = findViewById(R.id.mainDashboardLayout)
+        keyInputEditText = findViewById(R.id.keyInputEditText)
+        verifyKeyButton = findViewById(R.id.verifyKeyButton)
+
+        // Bind dashboard views
         statusText = findViewById(R.id.statusText)
         requestPermissionButton = findViewById(R.id.requestPermissionButton)
         pickFileButton = findViewById(R.id.pickFileButton)
         selectedFileText = findViewById(R.id.selectedFileText)
-        destPathEditText = findViewById(R.id.destPathEditText)
         copyButton = findViewById(R.id.copyButton)
         logText = findViewById(R.id.logText)
 
         Shizuku.addRequestPermissionResultListener(shizukuPermissionListener)
 
-        checkKeyAuthorization()
-        setupUI()
+        verifyKeyButton.setOnClickListener {
+            val userKey = keyInputEditText.text.toString().trim()
+            if (userKey.isNotEmpty()) {
+                validateKeyWithServer(userKey)
+            } else {
+                Toast.makeText(this, "Please enter a key", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
-    private fun checkKeyAuthorization() {
-        appendLog("Checking key authorization from GitHub...")
+    private fun validateKeyWithServer(inputKey: String) {
+        verifyKeyButton.isEnabled = false
+        Toast.initSafe
+        Toast.makeText(this, "Verifying key...", Toast.LENGTH_SHORT).show()
+
         thread {
             try {
                 val url = URL("https://raw.githubusercontent.com/mranshurx/CYBER-ENGINE-V1/refs/heads/main/key.txt")
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
                 val reader = BufferedReader(InputStreamReader(connection.inputStream))
-                val keyContent = reader.readLine()?.trim() ?: ""
+                val remoteKey = reader.readLine()?.trim() ?: ""
                 reader.close()
 
                 runOnUiThread {
-                    if (keyContent.isNotEmpty()) {
-                        appendLog("Key authorization successful.")
+                    verifyKeyButton.isEnabled = true
+                    if (inputKey == remoteKey) {
+                        Toast.makeText(this, "Authorization Successful!", Toast.LENGTH_SHORT).show()
+                        authLayout.visibility = View.GONE
+                        mainDashboardLayout.visibility = View.VISIBLE
                         checkShizukuStatus()
+                        setupUI()
                     } else {
-                        appendLog("Authorization failed: Key is empty.")
-                        Toast.makeText(this, "Invalid Key!", Toast.LENGTH_LONG).show()
-                        finish()
+                        Toast.makeText(this, "Invalid Key! Access Denied.", Toast.LENGTH_LONG).show()
                     }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    appendLog("Key check error: ${e.message}")
-                    Toast.makeText(this, "Failed to connect to authorization server.", Toast.LENGTH_LONG).show()
-                    finish()
+                    verifyKeyButton.isEnabled = true
+                    Toast.makeText(this, "Failed to connect to key server.", Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -106,19 +127,15 @@ class MainActivity : AppCompatActivity() {
                 if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
                     statusText.text = "Shizuku: Running & Authorized"
                     requestPermissionButton.visibility = View.GONE
-                    appendLog("Shizuku is ready.")
                 } else {
                     statusText.text = "Shizuku: Permission needed"
                     requestPermissionButton.visibility = View.VISIBLE
-                    appendLog("Shizuku permission required.")
                 }
             } else {
                 statusText.text = "Shizuku: Not running / service dead"
-                appendLog("Shizuku service is not running.")
             }
         } catch (e: Exception) {
             statusText.text = "Shizuku: Error checking status"
-            appendLog("Shizuku check error: ${e.message}")
         }
     }
 
@@ -139,8 +156,8 @@ class MainActivity : AppCompatActivity() {
             val baseDir = getExternalFilesDir(null)
             val anshuTopDir = File(baseDir, "anshu-on-top")
             if (!anshuTopDir.exists()) anshuTopDir.mkdirs()
-            selectedFileText.text = "Files source folder ready: anshu-on-top"
-            appendLog("Target storage folder initialized at: ${anshuTopDir.absolutePath}")
+            selectedFileText.text = "Source folder ready: anshu-on-top"
+            appendLog("Source folder initialized at: ${anshuTopDir.absolutePath}")
         }
 
         copyButton.setOnClickListener {
@@ -151,21 +168,12 @@ class MainActivity : AppCompatActivity() {
     private fun executeCopyProcess() {
         val baseDir = getExternalFilesDir(null) ?: return
         val anshuTopDir = File(baseDir, "anshu-on-top")
-        val pasteHereDir = File(baseDir, "paste-here")
 
         if (!anshuTopDir.exists()) anshuTopDir.mkdirs()
-        if (!pasteHereDir.exists()) pasteHereDir.mkdirs()
 
-        val customPath = destPathEditText.text.toString().trim()
-        val destinationPath = if (customPath.isNotEmpty()) {
-            File(pasteHereDir, "path.txt").writeText(customPath)
-            customPath
-        } else {
-            val pathFile = File(pasteHereDir, "path.txt")
-            if (pathFile.exists()) pathFile.readText().trim() else "/sdcard/Download/"
-        }
-
-        appendLog("Copying files from 'anshu-on-top' to: $destinationPath")
+        // Hardcoded destination path for Free Fire TH
+        val destinationPath = "/sdcard/Android/data/com.dts.freefireth/files"
+        appendLog("Target destination: $destinationPath")
 
         val files = anshuTopDir.listFiles()
         if (files.isNullOrEmpty()) {
@@ -175,6 +183,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         thread {
+            executeShizukuCommand(arrayOf("mkdir", "-p", destinationPath))
+
             for (file in files) {
                 if (file.isFile) {
                     val destFile = File(destinationPath, file.name)
@@ -183,8 +193,8 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             runOnUiThread {
-                appendLog("All files copied successfully!")
-                Toast.makeText(this, "Files Activated & Copied!", Toast.LENGTH_SHORT).show()
+                appendLog("All files pasted successfully to Free Fire directory!")
+                Toast.makeText(this, "Files Copied to Free Fire!", Toast.LENGTH_SHORT).show()
                 showFloatingMenu()
             }
         }
@@ -194,11 +204,22 @@ class MainActivity : AppCompatActivity() {
         try {
             val method: Method = Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
             method.isAccessible = true
-            val process = method.invoke(null, arrayOf("cp", src, dest), null, null) as Process
+            val process = method.invoke(null, arrayOf("cp", "-rf", src, dest), null, null) as Process
             process.waitFor()
             appendLog("Copied: ${File(src).name}")
         } catch (e: Exception) {
             appendLog("Failed to copy ${File(src).name}: ${e.message}")
+        }
+    }
+
+    private fun executeShizukuCommand(cmd: Array<String>) {
+        try {
+            val method: Method = Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
+            method.isAccessible = true
+            val process = method.invoke(null, cmd, null, null) as Process
+            process.waitFor()
+        } catch (e: Exception) {
+            appendLog("Command error: ${e.message}")
         }
     }
 
@@ -246,7 +267,7 @@ class MainActivity : AppCompatActivity() {
     private fun cleanupCopiedFiles() {
         thread {
             for (file in copiedFilesList) {
-                if (file.exists()) {
+                if (file.exists() || true) {
                     executeShizukuRm(file.absolutePath)
                 }
             }
@@ -258,9 +279,9 @@ class MainActivity : AppCompatActivity() {
         try {
             val method: Method = Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
             method.isAccessible = true
-            val process = method.invoke(null, arrayOf("rm", path), null, null) as Process
+            val process = method.invoke(null, arrayOf("rm", "-rf", path), null, null) as Process
             process.waitFor()
-            appendLog("Deleted: $path")
+            appendLog("Cleaned up: $path")
         } catch (e: Exception) {
             appendLog("Failed to delete $path: ${e.message}")
         }
