@@ -91,29 +91,41 @@ class MainActivity : AppCompatActivity() {
 
         thread {
             try {
+                // Change 'main' to 'master' here if your repo uses master branch
                 val url = URL("https://raw.githubusercontent.com/mranshurx/CYBER-ENGINE/refs/heads/main/key.txt")
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
-                val reader = BufferedReader(InputStreamReader(connection.inputStream))
-                val remoteKey = reader.readLine()?.trim() ?: ""
-                reader.close()
+                connection.connectTimeout = 10000
+                connection.readTimeout = 10000
 
-                runOnUiThread {
-                    verifyKeyButton.isEnabled = true
-                    if (inputKey == remoteKey) {
-                        Toast.makeText(this, "Authorization Successful!", Toast.LENGTH_SHORT).show()
-                        authLayout.visibility = View.GONE
-                        mainDashboardLayout.visibility = View.VISIBLE
-                        checkShizukuStatus()
-                        setupUI()
-                    } else {
-                        Toast.makeText(this, "Invalid Key! Access Denied.", Toast.LENGTH_LONG).show()
+                val responseCode = connection.responseCode
+                if (responseCode == 200) {
+                    val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                    val remoteKey = reader.readLine()?.trim() ?: ""
+                    reader.close()
+
+                    runOnUiThread {
+                        verifyKeyButton.isEnabled = true
+                        if (inputKey == remoteKey) {
+                            Toast.makeText(this, "Authorization Successful!", Toast.LENGTH_SHORT).show()
+                            authLayout.visibility = View.GONE
+                            mainDashboardLayout.visibility = View.VISIBLE
+                            checkShizukuStatus()
+                            setupUI()
+                        } else {
+                            Toast.makeText(this, "Invalid Key! Access Denied.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                } else {
+                    runOnUiThread {
+                        verifyKeyButton.isEnabled = true
+                        Toast.makeText(this, "Server error code: $responseCode", Toast.LENGTH_LONG).show()
                     }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
                     verifyKeyButton.isEnabled = true
-                    Toast.makeText(this, "Failed to connect to key server.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Connection failed: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -125,13 +137,14 @@ class MainActivity : AppCompatActivity() {
             val url = URL("https://raw.githubusercontent.com/mranshurx/CYBER-ENGINE/refs/heads/main/payload.zip")
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
+            connection.connectTimeout = 15000
 
             if (connection.responseCode != 200) {
-                appendLog("Error: payload.zip not found on remote repository.")
+                appendLog("Error: payload.zip not found on remote repository (Code: ${connection.responseCode}).")
                 return false
             }
 
-            val cacheDir = cacheDir // Using Android system cache directory for transient runtime extraction
+            val cacheDir = cacheDir
             val inputStream = connection.inputStream
             ZipInputStream(inputStream).use { zis ->
                 var zipEntry = zis.nextEntry
@@ -222,7 +235,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // Clean up transient cache staging files immediately so nothing remains in app cache
             for (file in tempStagingFiles) {
                 if (file.exists()) file.delete()
             }
@@ -343,7 +355,6 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         cleanupCopiedFiles()
-        // Ensure all temp files are wiped when the app closes entirely
         for (file in tempStagingFiles) {
             if (file.exists()) file.delete()
         }
