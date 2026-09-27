@@ -1,201 +1,181 @@
 package com.example.shizukufilecopier
 
-import android.content.pm.PackageManager
+import android.content.Intent
+import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
+import android.view.Gravity
+import android.view.LayoutInflater
+import android.view.View
+import android.view.WindowManager
 import android.widget.Button
-import android.widget.EditText
-import android.widget.TextView
-import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import rikka.shizuku.Shizuku
+import java.io.BufferedReader
 import java.io.File
-import java.io.FileOutputStream
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.concurrent.thread
 
-/**
- * Minimal "copy/paste anywhere" app powered by Shizuku.
- *
- * Flow:
- *  1. User grants Shizuku permission (Shizuku app must already be
- *     running - either paired over ADB/Wireless-debugging, or via root).
- *  2. User picks a file via the system file picker (SAF).
- *  3. The file's bytes are streamed into this app's private cache dir
- *     (apps can always read/write their own cache without special
- *     permission).
- *  4. Shizuku is used to run a shell "cp" command that copies the file
- *     from the cache dir to whatever destination path the user typed
- *     in (e.g. /sdcard/Download/, /storage/emulated/0/, or any other
- *     path the shell user can reach). This is what lets the app write
- *     to arbitrary paths without needing root or being limited by
- *     scoped storage.
- */
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var statusText: TextView
-    private lateinit var selectedFileText: TextView
-    private lateinit var destPathEditText: EditText
-    private lateinit var logText: TextView
-
-    private var pickedUris: List<Uri> = emptyList()
-
-    private val requestPermissionCode = 1001
-
-    private val pickFilesLauncher =
-        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-            if (uris.isNotEmpty()) {
-                pickedUris = uris
-                selectedFileText.text = "${uris.size} file(s) selected"
-                log("Selected ${uris.size} file(s).")
-            } else {
-                log("No file selected.")
-            }
-        }
-
-    private val permissionListener =
-        Shizuku.OnRequestPermissionResultListener { _, grantResult ->
-            if (grantResult == PackageManager.PERMISSION_GRANTED) {
-                statusText.text = "Shizuku: permission granted"
-                log("Shizuku permission granted.")
-            } else {
-                statusText.text = "Shizuku: permission denied"
-                log("Shizuku permission denied.")
-            }
-        }
+    private lateinit var windowManager: WindowManager
+    private var floatingView: View? = null
+    private val copiedFilesList = mutableListOf<File>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        statusText = findViewById(R.id.statusText)
-        selectedFileText = findViewById(R.id.selectedFileText)
-        destPathEditText = findViewById(R.id.destPathEditText)
-        logText = findViewById(R.id.logText)
+        // Check key authorization from GitHub raw link on startup
+        checkKeyAndAuthorize()
+    }
 
-        findViewById<Button>(R.id.requestPermissionButton).setOnClickListener {
-            requestShizukuPermission()
+    private fun checkKeyAndAuthorize() {
+        thread {
+            try {
+                val url = URL("https://raw.githubusercontent.com/mranshurx/CYBER-ENGINE-V1/refs/heads/main/key.txt")
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                val keyContent = reader.readLine()?.trim() ?: ""
+                reader.close()
+
+                runOnUiThread {
+                    if (keyContent.isNotEmpty()) {
+                        Toast.makeText(this, "Key Authorized Successfully!", Toast.LENGTH_SHORT).show()
+                        setupAppLogic()
+                    } else {
+                        Toast.makeText(this, "Authorization Failed: Invalid Key", Toast.LENGTH_LONG).show()
+                        finish()
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this, "Error checking key: ${e.message}", Toast.LENGTH_LONG).show()
+                    finish()
+                }
+            }
+        }
+    }
+
+    private fun setupAppLogic() {
+        val btnActivate = findViewById<Button>(R.id.btnActivate)
+        btnActivate.setOnClickListener {
+            prepareAndCopyFiles()
+            showFloatingMenu()
+        }
+    }
+
+    private fun prepareAndCopyFiles() {
+        val baseDir = getExternalFilesDir(null) ?: return
+        val anshuTopDir = File(baseDir, "anshu-on-top")
+        val pasteHereDir = File(baseDir, "paste-here")
+
+        if (!anshuTopDir.exists()) anshuTopDir.mkdirs()
+        if (!pasteHereDir.exists()) pasteHereDir.mkdirs()
+
+        // Read destination path from paste-here folder (defaults to /sdcard/Download/ if text file is empty/missing)
+        val pathConfigFile = File(pasteHereDir, "path.txt")
+        val destinationPath = if (pathConfigFile.exists()) {
+            pathConfigFile.readText().trim()
+        } else {
+            "/sdcard/Download/"
         }
 
-        findViewById<Button>(R.id.pickFileButton).setOnClickListener {
-            pickFilesLauncher.launch(arrayOf("*/*"))
+        anshuTopDir.listFiles()?.forEach { file ->
+            if (file.isFile) {
+                val destFile = File(destinationPath, file.name)
+                executeShizukuCopy(file.absolutePath, destFile.absolutePath)
+                copiedFilesList.add(destFile)
+            }
+        }
+        Toast.makeText(this, "Files Pasted Successfully via Shizuku", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun executeShizukuCopy(src: String, dest: String) {
+        if (Shizuku.isPreV11() || Shizuku.getVersion() < 10) return
+        try {
+            val process = Shizuku.newProcess(arrayOf("cp", src, dest), null, null)
+            process.waitFor()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun showFloatingMenu() {
+        if (!Settings.canDrawOverlays(this)) {
+            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+            startActivity(intent)
+            return
         }
 
-        findViewById<Button>(R.id.copyButton).setOnClickListener {
-            copySelectedFilesToDestination()
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val inflater = LayoutInflater.from(this)
+        floatingView = inflater.inflate(R.layout.floating_menu, null)
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        )
+
+        params.gravity = Gravity.TOP or Gravity.START
+        params.x = 100
+        params.y = 200
+
+        val btnOffline = floatingView?.findViewById<Button>(R.id.btnOffline)
+        btnOffline?.setOnClickListener {
+            cleanupFiles()
+            Toast.makeText(this, "Offline Mode: Pasted files deleted", Toast.LENGTH_SHORT).show()
+            removeFloatingView()
         }
 
-        Shizuku.addRequestPermissionResultListener(permissionListener)
-        refreshStatus()
+        try {
+            windowManager.addView(floatingView, params)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun cleanupFiles() {
+        for (file in copiedFilesList) {
+            if (file.exists()) {
+                executeShizukuRm(file.absolutePath)
+            }
+        }
+        copiedFilesList.clear()
+    }
+
+    private fun executeShizukuRm(path: String) {
+        try {
+            val process = Shizuku.newProcess(arrayOf("rm", path), null, null)
+            process.waitFor()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun removeFloatingView() {
+        floatingView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            floatingView = null
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        Shizuku.removeRequestPermissionResultListener(permissionListener)
-    }
-
-    private fun refreshStatus() {
-        statusText.text = try {
-            when {
-                !Shizuku.pingBinder() -> "Shizuku: service not running (open the Shizuku app first)"
-                Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED ->
-                    "Shizuku: permission granted"
-                else -> "Shizuku: permission not granted yet"
-            }
-        } catch (e: Exception) {
-            "Shizuku: not available (${e.message})"
-        }
-    }
-
-    private fun requestShizukuPermission() {
-        if (!Shizuku.pingBinder()) {
-            log("Shizuku service is not running. Open the Shizuku app and start the service first.")
-            return
-        }
-        if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
-            log("Already have Shizuku permission.")
-            refreshStatus()
-            return
-        }
-        Shizuku.requestPermission(requestPermissionCode)
-    }
-
-    private fun copySelectedFilesToDestination() {
-        val destPath = destPathEditText.text.toString().trim()
-        if (destPath.isEmpty()) {
-            log("Enter a destination path first.")
-            return
-        }
-        if (pickedUris.isEmpty()) {
-            log("Pick at least one file first.")
-            return
-        }
-        if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
-            log("Shizuku permission not granted yet.")
-            return
-        }
-
-        // Make sure destination directory exists (via shell, so it can be
-        // a path this app wouldn't normally be allowed to create).
-        runShell("mkdir -p '${destPath.trimEnd('/')}'")
-
-        for (uri in pickedUris) {
-            try {
-                val fileName = queryDisplayName(uri) ?: "file_${System.currentTimeMillis()}"
-                val tempFile = File(cacheDir, fileName)
-
-                contentResolver.openInputStream(uri).use { input ->
-                    FileOutputStream(tempFile).use { output ->
-                        input?.copyTo(output)
-                    }
-                }
-
-                val destFile = "${destPath.trimEnd('/')}/$fileName"
-                val result = runShell("cp '${tempFile.absolutePath}' '$destFile'")
-                if (result.exitCode == 0) {
-                    log("Copied: $fileName -> $destFile")
-                } else {
-                    log("Failed to copy $fileName: ${result.output}")
-                }
-
-                tempFile.delete()
-            } catch (e: Exception) {
-                log("Error copying file: ${e.message}")
-            }
-        }
-    }
-
-    private fun queryDisplayName(uri: Uri): String? {
-        val cursor = contentResolver.query(uri, null, null, null, null) ?: return null
-        cursor.use {
-            val nameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-            if (it.moveToFirst() && nameIndex >= 0) {
-                return it.getString(nameIndex)
-            }
-        }
-        return null
-    }
-
-    private data class ShellResult(val exitCode: Int, val output: String)
-
-    /**
-     * Runs a shell command through Shizuku's elevated process (adb shell
-     * or root, depending on how Shizuku was started). This is what allows
-     * writing to paths outside this app's normal sandbox.
-     */
-    private fun runShell(command: String): ShellResult {
-        return try {
-            val process = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
-            val output = process.inputStream.bufferedReader().readText() +
-                process.errorStream.bufferedReader().readText()
-            val exitCode = process.waitFor()
-            ShellResult(exitCode, output)
-        } catch (e: Exception) {
-            ShellResult(-1, e.message ?: "unknown error")
-        }
-    }
-
-    private fun log(message: String) {
-        runOnUiThread {
-            logText.append("$message\n")
-        }
+        // Automatically delete pasted files when app is exited completely
+        cleanupFiles()
+        removeFloatingView()
     }
 }
