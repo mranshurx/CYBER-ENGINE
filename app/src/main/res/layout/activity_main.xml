@@ -24,7 +24,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Copy Paster Auth"
+            android:text="CYBER ENGINE"
             android:textColor="#FFFFFF"
             android:textSize="28sp"
             android:textStyle="bold"
@@ -77,7 +77,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Copy Paster (Free Fire TH)"
+            android:text="CYBER ENGINE"
             android:textColor="#FFFFFF"
             android:textSize="26sp"
             android:textStyle="bold"
@@ -101,19 +101,11 @@
             android:layout_height="52dp"
             android:text="Grant Shizuku Permission" />
 
-        <Button
-            android:id="@+id/pickFileButton"
-            style="@style/PremiumButton.Outline"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:layout_marginTop="14dp"
-            android:text="Initialize Source Folder" />
-
         <TextView
             android:id="@+id/selectedFileText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="No source files initialized"
+            android:text="Engine ready for activation"
             android:textColor="#B9C4D8"
             android:textSize="13sp"
             android:paddingTop="10dp"
@@ -125,7 +117,7 @@
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:layout_marginTop="10dp"
-            android:text="ACTIVATE &amp; PASTE" />
+            android:text="ACTIVATE CYBER ENGINE" />
 
         <TextView
             android:layout_width="match_parent"

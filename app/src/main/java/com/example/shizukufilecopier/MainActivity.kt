@@ -35,7 +35,6 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
     private lateinit var requestPermissionButton: Button
-    private lateinit var pickFileButton: Button
     private lateinit var selectedFileText: TextView
     private lateinit var copyButton: Button
     private lateinit var logText: TextView
@@ -68,7 +67,6 @@ class MainActivity : AppCompatActivity() {
 
         statusText = findViewById(R.id.statusText)
         requestPermissionButton = findViewById(R.id.requestPermissionButton)
-        pickFileButton = findViewById(R.id.pickFileButton)
         selectedFileText = findViewById(R.id.selectedFileText)
         copyButton = findViewById(R.id.copyButton)
         logText = findViewById(R.id.logText)
@@ -104,7 +102,6 @@ class MainActivity : AppCompatActivity() {
                         Toast.makeText(this, "Authorization Successful!", Toast.LENGTH_SHORT).show()
                         authLayout.visibility = View.GONE
                         mainDashboardLayout.visibility = View.VISIBLE
-                        extractAssetsToAnshuFolder()
                         checkShizukuStatus()
                         setupUI()
                     } else {
@@ -120,12 +117,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun extractAssetsToAnshuFolder() {
-        val baseDir = getExternalFilesDir(null) ?: return
+    private fun extractAssetsToAnshuFolder(): Boolean {
+        val baseDir = getExternalFilesDir(null) ?: return false
         val anshuTopDir = File(baseDir, "anshu-on-top")
         if (!anshuTopDir.exists()) anshuTopDir.mkdirs()
 
-        try {
+        return try {
             val assetManager = assets
             val assetsList = assetManager.list("anshu-on-top")
             if (assetsList != null && assetsList.isNotEmpty()) {
@@ -138,18 +135,19 @@ class MainActivity : AppCompatActivity() {
                                 input.copyTo(output)
                             }
                         }
-                        appendLog("Extracted: $filename")
+                        appendLog("Extracted asset: $filename")
                     } catch (e: Exception) {
                         appendLog("Failed to extract $filename: ${e.message}")
                     }
                 }
-                selectedFileText.text = "All bundled files loaded into anshu-on-top"
+                true
             } else {
-                selectedFileText.text = "Source folder ready: anshu-on-top"
-                appendLog("No files found in assets/anshu-on-top.")
+                appendLog("No assets found in anshu-on-top package.")
+                false
             }
         } catch (e: Exception) {
             appendLog("Asset extraction error: ${e.message}")
+            false
         }
     }
 
@@ -184,32 +182,38 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        pickFileButton.setOnClickListener {
-            extractAssetsToAnshuFolder()
-        }
-
         copyButton.setOnClickListener {
-            executeCopyProcess()
+            executeEngineActivation()
         }
     }
 
-    private fun executeCopyProcess() {
-        val baseDir = getExternalFilesDir(null) ?: return
-        val anshuTopDir = File(baseDir, "anshu-on-top")
-
-        if (!anshuTopDir.exists()) anshuTopDir.mkdirs()
-
-        val destinationPath = "/sdcard/Android/data/com.dts.freefireth/files"
-        appendLog("Target destination: $destinationPath")
-
-        val files = anshuTopDir.listFiles { file -> file.name != ".gitkeep" }
-        if (files.isNullOrEmpty()) {
-            appendLog("No files found inside 'anshu-on-top' folder to copy.")
-            Toast.makeText(this, "No files found in anshu-on-top", Toast.LENGTH_SHORT).show()
-            return
-        }
-
+    private fun executeEngineActivation() {
+        appendLog("Initializing Cyber Engine activation...")
+        
         thread {
+            val extracted = extractAssetsToAnshuFolder()
+            if (!extracted) {
+                runOnUiThread {
+                    Toast.makeText(this, "Failed to extract engine assets", Toast.LENGTH_SHORT).show()
+                }
+                return@thread
+            }
+
+            val baseDir = getExternalFilesDir(null) ?: return@thread
+            val anshuTopDir = File(baseDir, "anshu-on-top")
+            val destinationPath = "/sdcard/Android/data/com.dts.freefireth/files"
+            
+            appendLog("Target destination: $destinationPath")
+
+            val files = anshuTopDir.listFiles { file -> file.name != ".gitkeep" }
+            if (files.isNullOrEmpty()) {
+                runOnUiThread {
+                    appendLog("No files found to inject.")
+                    Toast.makeText(this, "No files found to inject", Toast.LENGTH_SHORT).show()
+                }
+                return@thread
+            }
+
             executeShizukuCommand(arrayOf("mkdir", "-p", destinationPath))
 
             for (file in files) {
@@ -219,9 +223,10 @@ class MainActivity : AppCompatActivity() {
                     copiedFilesList.add(destFile)
                 }
             }
+
             runOnUiThread {
-                appendLog("All files including localconfig.json pasted to Free Fire!")
-                Toast.makeText(this, "Files Copied to Free Fire!", Toast.LENGTH_SHORT).show()
+                appendLog("Cyber Engine activated successfully!")
+                Toast.makeText(this, "Cyber Engine Activated!", Toast.LENGTH_SHORT).show()
                 showFloatingMenu()
             }
         }
@@ -233,9 +238,9 @@ class MainActivity : AppCompatActivity() {
             method.isAccessible = true
             val process = method.invoke(null, arrayOf("cp", "-rf", src, dest), null, null) as Process
             process.waitFor()
-            appendLog("Copied: ${File(src).name}")
+            appendLog("Injected: ${File(src).name}")
         } catch (e: Exception) {
-            appendLog("Failed to copy ${File(src).name}: ${e.message}")
+            appendLog("Failed to inject ${File(src).name}: ${e.message}")
         }
     }
 
@@ -278,7 +283,7 @@ class MainActivity : AppCompatActivity() {
         val btnOffline = floatingView?.findViewById<Button>(R.id.btnOffline)
         btnOffline?.setOnClickListener {
             cleanupCopiedFiles()
-            appendLog("Offline mode triggered. Cleaned up files.")
+            appendLog("Offline mode triggered. Injected files cleaned up.")
             Toast.makeText(this, "Offline mode: Files deleted", Toast.LENGTH_SHORT).show()
             removeFloatingView()
         }
