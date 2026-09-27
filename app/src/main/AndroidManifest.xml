@@ -3,6 +3,11 @@
 
     <!-- Needed to talk to the Shizuku manager app -->
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
+    <!-- Needed for GitHub Key Authorization -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Needed for the Floating Menu -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:allowBackup="true"
