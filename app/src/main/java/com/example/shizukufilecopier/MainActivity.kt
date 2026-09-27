@@ -5,8 +5,6 @@ import android.content.pm.PackageManager
 import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -21,6 +19,7 @@ import rikka.shizuku.Shizuku
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
+import java.lang.reflect.Method
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
@@ -56,7 +55,6 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Bind layout views from your XML
         statusText = findViewById(R.id.statusText)
         requestPermissionButton = findViewById(R.id.requestPermissionButton)
         pickFileButton = findViewById(R.id.pickFileButton)
@@ -67,10 +65,7 @@ class MainActivity : AppCompatActivity() {
 
         Shizuku.addRequestPermissionResultListener(shizukuPermissionListener)
 
-        // 1. Authorize via GitHub Key
         checkKeyAuthorization()
-
-        // 2. Setup UI Handlers
         setupUI()
     }
 
@@ -161,7 +156,6 @@ class MainActivity : AppCompatActivity() {
         if (!anshuTopDir.exists()) anshuTopDir.mkdirs()
         if (!pasteHereDir.exists()) pasteHereDir.mkdirs()
 
-        // Save input destination path into paste-here/path.txt or read directly from text input
         val customPath = destPathEditText.text.toString().trim()
         val destinationPath = if (customPath.isNotEmpty()) {
             File(pasteHereDir, "path.txt").writeText(customPath)
@@ -197,9 +191,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun executeShizukuCopy(src: String, dest: String) {
-        if (Shizuku.isPreV11() || Shizuku.getVersion() < 10) return
         try {
-            val process = Shizuku.newProcess(arrayOf("cp", src, dest), null, null)
+            val method: Method = Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
+            method.isAccessible = true
+            val process = method.invoke(null, arrayOf("cp", src, dest), null, null) as Process
             process.waitFor()
             appendLog("Copied: ${File(src).name}")
         } catch (e: Exception) {
@@ -215,7 +210,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        if (floatingView != null) return // Avoid duplicate views
+        if (floatingView != null) return
 
         val inflater = LayoutInflater.from(this)
         floatingView = inflater.inflate(R.layout.floating_menu, null)
@@ -261,7 +256,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun executeShizukuRm(path: String) {
         try {
-            val process = Shizuku.newProcess(arrayOf("rm", path), null, null)
+            val method: Method = Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
+            method.isAccessible = true
+            val process = method.invoke(null, arrayOf("rm", path), null, null) as Process
             process.waitFor()
             appendLog("Deleted: $path")
         } catch (e: Exception) {
@@ -288,7 +285,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Automatically clean up pasted files and floating window when application is exited
         cleanupCopiedFiles()
         removeFloatingView()
         try {
