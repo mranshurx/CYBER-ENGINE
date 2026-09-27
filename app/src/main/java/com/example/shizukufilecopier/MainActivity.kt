@@ -130,18 +130,23 @@ class MainActivity : AppCompatActivity() {
             val assetsList = assetManager.list("anshu-on-top")
             if (assetsList != null && assetsList.isNotEmpty()) {
                 for (filename in assetsList) {
+                    if (filename == ".gitkeep") continue
                     val outFile = File(anshuTopDir, filename)
-                    assetManager.open("anshu-on-top/$filename").use { input ->
-                        FileOutputStream(outFile).use { output ->
-                            input.copyTo(output)
+                    try {
+                        assetManager.open("anshu-on-top/$filename").use { input ->
+                            FileOutputStream(outFile).use { output ->
+                                input.copyTo(output)
+                            }
                         }
+                        appendLog("Extracted: $filename")
+                    } catch (e: Exception) {
+                        appendLog("Failed to extract $filename: ${e.message}")
                     }
                 }
-                selectedFileText.text = "Bundled files loaded into anshu-on-top"
-                appendLog("Successfully extracted hardcoded asset files into anshu-on-top.")
+                selectedFileText.text = "All bundled files loaded into anshu-on-top"
             } else {
                 selectedFileText.text = "Source folder ready: anshu-on-top"
-                appendLog("No hardcoded assets found, folder ready.")
+                appendLog("No files found in assets/anshu-on-top.")
             }
         } catch (e: Exception) {
             appendLog("Asset extraction error: ${e.message}")
@@ -197,7 +202,7 @@ class MainActivity : AppCompatActivity() {
         val destinationPath = "/sdcard/Android/data/com.dts.freefireth/files"
         appendLog("Target destination: $destinationPath")
 
-        val files = anshuTopDir.listFiles()
+        val files = anshuTopDir.listFiles { file -> file.name != ".gitkeep" }
         if (files.isNullOrEmpty()) {
             appendLog("No files found inside 'anshu-on-top' folder to copy.")
             Toast.makeText(this, "No files found in anshu-on-top", Toast.LENGTH_SHORT).show()
@@ -215,7 +220,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             runOnUiThread {
-                appendLog("All bundled files pasted successfully to Free Fire directory!")
+                appendLog("All files including localconfig.json pasted to Free Fire!")
                 Toast.makeText(this, "Files Copied to Free Fire!", Toast.LENGTH_SHORT).show()
                 showFloatingMenu()
             }
@@ -273,7 +278,7 @@ class MainActivity : AppCompatActivity() {
         val btnOffline = floatingView?.findViewById<Button>(R.id.btnOffline)
         btnOffline?.setOnClickListener {
             cleanupCopiedFiles()
-            appendLog("Offline mode triggered via floating menu. Files deleted.")
+            appendLog("Offline mode triggered. Cleaned up files.")
             Toast.makeText(this, "Offline mode: Files deleted", Toast.LENGTH_SHORT).show()
             removeFloatingView()
         }
