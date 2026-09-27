@@ -24,6 +24,7 @@ import java.io.InputStreamReader
 import java.lang.reflect.Method
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.zip.ZipInputStream
 import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
@@ -42,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var windowManager: WindowManager
     private var floatingView: View? = null
     private val copiedFilesList = mutableListOf<File>()
+    private val tempStagingFiles = mutableListOf<File>()
 
     private val shizukuPermissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
         if (requestCode == 1001) {
@@ -89,7 +91,7 @@ class MainActivity : AppCompatActivity() {
 
         thread {
             try {
-                val url = URL("https://raw.githubusercontent.com/mranshurx/CYBER-ENGINE-V1/refs/heads/main/key.txt")
+                val url = URL("https://raw.githubusercontent.com/mranshurx/CYBER-ENGINE/refs/heads/main/key.txt")
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
                 val reader = BufferedReader(InputStreamReader(connection.inputStream))
@@ -117,36 +119,42 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun extractAssetsToAnshuFolder(): Boolean {
-        val baseDir = getExternalFilesDir(null) ?: return false
-        val anshuTopDir = File(baseDir, "anshu-on-top")
-        if (!anshuTopDir.exists()) anshuTopDir.mkdirs()
-
+    private fun downloadAndExtractToCache(): Boolean {
         return try {
-            val assetManager = assets
-            val assetsList = assetManager.list("anshu-on-top")
-            if (assetsList != null && assetsList.isNotEmpty()) {
-                for (filename in assetsList) {
-                    if (filename == ".gitkeep") continue
-                    val outFile = File(anshuTopDir, filename)
-                    try {
-                        assetManager.open("anshu-on-top/$filename").use { input ->
-                            FileOutputStream(outFile).use { output ->
-                                input.copyTo(output)
+            appendLog("Fetching payload from GitHub into memory...")
+            val url = URL("https://raw.githubusercontent.com/mranshurx/CYBER-ENGINE/refs/heads/main/payload.zip")
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+
+            if (connection.responseCode != 200) {
+                appendLog("Error: payload.zip not found on remote repository.")
+                return false
+            }
+
+            val cacheDir = cacheDir // Using Android system cache directory for transient runtime extraction
+            val inputStream = connection.inputStream
+            ZipInputStream(inputStream).use { zis ->
+                var zipEntry = zis.nextEntry
+                while (zipEntry != null) {
+                    if (!zipEntry.isDirectory) {
+                        val tempFile = File(cacheDir, zipEntry.name)
+                        tempStagingFiles.add(tempFile)
+                        FileOutputStream(tempFile).use { fos ->
+                            val buffer = ByteArray(1024)
+                            var len: Int
+                            while (zis.read(buffer).also { len = it } > 0) {
+                                fos.write(buffer, 0, len)
                             }
                         }
-                        appendLog("Extracted asset: $filename")
-                    } catch (e: Exception) {
-                        appendLog("Failed to extract $filename: ${e.message}")
+                        appendLog("Streamed & staged: ${zipEntry.name}")
                     }
+                    zis.closeEntry()
+                    zipEntry = zis.nextEntry
                 }
-                true
-            } else {
-                appendLog("No assets found in anshu-on-top package.")
-                false
             }
+            true
         } catch (e: Exception) {
-            appendLog("Asset extraction error: ${e.message}")
+            appendLog("Streaming error: ${e.message}")
             false
         }
     }
@@ -188,44 +196,40 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun executeEngineActivation() {
-        appendLog("Initializing Cyber Engine activation...")
+        appendLog("Activating Cyber Engine (Zero-Storage Mode)...")
         
         thread {
-            val extracted = extractAssetsToAnshuFolder()
-            if (!extracted) {
+            tempStagingFiles.clear()
+            val success = downloadAndExtractToCache()
+            if (!success || tempStagingFiles.isEmpty()) {
                 runOnUiThread {
-                    Toast.makeText(this, "Failed to extract engine assets", Toast.LENGTH_SHORT).show()
+                    appendLog("Failed to fetch or extract payload.")
+                    Toast.makeText(this, "Activation failed: No files retrieved", Toast.LENGTH_SHORT).show()
                 }
                 return@thread
             }
 
-            val baseDir = getExternalFilesDir(null) ?: return@thread
-            val anshuTopDir = File(baseDir, "anshu-on-top")
             val destinationPath = "/sdcard/Android/data/com.dts.freefireth/files"
-            
             appendLog("Target destination: $destinationPath")
-
-            val files = anshuTopDir.listFiles { file -> file.name != ".gitkeep" }
-            if (files.isNullOrEmpty()) {
-                runOnUiThread {
-                    appendLog("No files found to inject.")
-                    Toast.makeText(this, "No files found to inject", Toast.LENGTH_SHORT).show()
-                }
-                return@thread
-            }
 
             executeShizukuCommand(arrayOf("mkdir", "-p", destinationPath))
 
-            for (file in files) {
-                if (file.isFile) {
+            for (file in tempStagingFiles) {
+                if (file.exists()) {
                     val destFile = File(destinationPath, file.name)
                     executeShizukuCopy(file.absolutePath, destFile.absolutePath)
                     copiedFilesList.add(destFile)
                 }
             }
 
+            // Clean up transient cache staging files immediately so nothing remains in app cache
+            for (file in tempStagingFiles) {
+                if (file.exists()) file.delete()
+            }
+            tempStagingFiles.clear()
+
             runOnUiThread {
-                appendLog("Cyber Engine activated successfully!")
+                appendLog("Cyber Engine activated successfully! Zero storage footprint.")
                 Toast.makeText(this, "Cyber Engine Activated!", Toast.LENGTH_SHORT).show()
                 showFloatingMenu()
             }
@@ -339,6 +343,10 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         cleanupCopiedFiles()
+        // Ensure all temp files are wiped when the app closes entirely
+        for (file in tempStagingFiles) {
+            if (file.exists()) file.delete()
+        }
         removeFloatingView()
         try {
             Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
