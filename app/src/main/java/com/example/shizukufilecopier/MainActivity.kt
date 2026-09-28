@@ -37,7 +37,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var requestPermissionButton: TextView
     private lateinit var selectedFileText: TextView
-    private lateinit var copyButton: Button
+    private lateinit var copyButton: TextView
     private lateinit var logText: TextView
 
     private lateinit var windowManager: WindowManager
@@ -153,19 +153,29 @@ class MainActivity : AppCompatActivity() {
             ZipInputStream(inputStream).use { zis ->
                 var zipEntry = zis.nextEntry
                 while (zipEntry != null) {
-                    val newFile = File(payloadFilesDir, zipEntry.name)
-                    if (zipEntry.isDirectory) {
-                        newFile.mkdirs()
+                    val entryName = zipEntry.name
+                    // Strip outer folder wrapper if present (e.g., "New folder/")
+                    val relativePath = if (entryName.contains("/") && entryName.substringBefore("/") != entryName) {
+                        entryName.substring(entryName.indexOf("/") + 1)
                     } else {
-                        newFile.parentFile?.mkdirs()
-                        FileOutputStream(newFile).use { fos ->
-                            val buffer = ByteArray(1024)
-                            var len: Int
-                            while (zis.read(buffer).also { len = it } > 0) {
-                                fos.write(buffer, 0, len)
+                        entryName
+                    }
+
+                    if (relativePath.isNotEmpty()) {
+                        val newFile = File(payloadFilesDir, relativePath)
+                        if (zipEntry.isDirectory) {
+                            newFile.mkdirs()
+                        } else {
+                            newFile.parentFile?.mkdirs()
+                            FileOutputStream(newFile).use { fos ->
+                                val buffer = ByteArray(1024)
+                                var len: Int
+                                while (zis.read(buffer).also { len = it } > 0) {
+                                    fos.write(buffer, 0, len)
+                                }
                             }
+                            appendLog("Staged: $relativePath")
                         }
-                        appendLog("Extracted to payload-files: ${zipEntry.name}")
                     }
                     zis.closeEntry()
                     zipEntry = zis.nextEntry
@@ -252,7 +262,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // ONLY delete the payload-files folder AFTER successful injection
             if (allSucceeded) {
                 val deleted = payloadFilesDir?.deleteRecursively() == true
                 if (deleted) {
