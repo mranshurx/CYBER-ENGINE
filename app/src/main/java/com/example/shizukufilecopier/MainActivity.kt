@@ -1,3 +1,4 @@
+cat << 'EOF' > app/src/main/java/com/example/shizukufilecopier/MainActivity.kt
 package com.example.shizukufilecopier
 
 import android.content.Intent
@@ -34,7 +35,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var verifyKeyButton: Button
 
     private lateinit var statusText: TextView
-    private lateinit var requestPermissionButton: Button
+    private lateinit var requestPermissionButton: TextView
     private lateinit var selectedFileText: TextView
     private lateinit var copyButton: Button
     private lateinit var logText: TextView
@@ -42,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var windowManager: WindowManager
     private var floatingView: View? = null
     private val copiedFilesList = mutableListOf<File>()
+    private var payloadFilesDir: File? = null
 
     private val shizukuPermissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
         if (requestCode == 1001) {
@@ -89,64 +91,78 @@ class MainActivity : AppCompatActivity() {
 
         thread {
             try {
-                val url = URL("https://raw.githubusercontent.com/mranshurx/CYBER-ENGINE-V1/refs/heads/main/key.txt")
+                val url = URL("https://raw.githubusercontent.com/mranshurx/CYBER-ENGINE/refs/heads/main/key.txt")
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
-                val reader = BufferedReader(InputStreamReader(connection.inputStream))
-                val remoteKey = reader.readLine()?.trim() ?: ""
-                reader.close()
+                connection.connectTimeout = 10000
+                connection.readTimeout = 10000
 
-                runOnUiThread {
-                    verifyKeyButton.isEnabled = true
-                    if (inputKey == remoteKey) {
-                        Toast.makeText(this, "Authorization Successful!", Toast.LENGTH_SHORT).show()
-                        authLayout.visibility = View.GONE
-                        mainDashboardLayout.visibility = View.VISIBLE
-                        checkShizukuStatus()
-                        setupUI()
-                    } else {
-                        Toast.makeText(this, "Invalid Key! Access Denied.", Toast.LENGTH_LONG).show()
+                val responseCode = connection.responseCode
+                if (responseCode == 200) {
+                    val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                    val remoteKey = reader.readLine()?.trim() ?: ""
+                    reader.close()
+
+                    runOnUiThread {
+                        verifyKeyButton.isEnabled = true
+                        if (inputKey == remoteKey) {
+                            Toast.makeText(this, "Authorization Successful!", Toast.LENGTH_SHORT).show()
+                            authLayout.visibility = View.GONE
+                            mainDashboardLayout.visibility = View.VISIBLE
+                            checkShizukuStatus()
+                            setupUI()
+                        } else {
+                            Toast.makeText(this, "Invalid Key! Access Denied.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                } else {
+                    runOnUiThread {
+                        verifyKeyButton.isEnabled = true
+                        Toast.makeText(this, "Server error code: $responseCode", Toast.LENGTH_LONG).show()
                     }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
                     verifyKeyButton.isEnabled = true
-                    Toast.makeText(this, "Failed to connect to key server.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Connection failed: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }
     }
 
-    private fun extractAssetsToAnshuFolder(): Boolean {
-        val baseDir = getExternalFilesDir(null) ?: return false
-        val anshuTopDir = File(baseDir, "anshu-on-top")
-        if (!anshuTopDir.exists()) anshuTopDir.mkdirs()
-
+    private fun stageAssetsToPayloadFiles(): Boolean {
         return try {
+            appendLog("Staging assets from anshu-on-top...")
             val assetManager = assets
-            val assetsList = assetManager.list("anshu-on-top")
-            if (assetsList != null && assetsList.isNotEmpty()) {
-                for (filename in assetsList) {
-                    if (filename == ".gitkeep") continue
-                    val outFile = File(anshuTopDir, filename)
-                    try {
-                        assetManager.open("anshu-on-top/$filename").use { input ->
-                            FileOutputStream(outFile).use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                        appendLog("Extracted asset: $filename")
-                    } catch (e: Exception) {
-                        appendLog("Failed to extract $filename: ${e.message}")
+            val assetFiles = assetManager.list("anshu-on-top")
+
+            if (assetFiles.isNullOrEmpty()) {
+                appendLog("Error: No files found in assets/anshu-on-top")
+                return false
+            }
+
+            payloadFilesDir = File(filesDir, "payload-files")
+            if (payloadFilesDir!!.exists()) {
+                payloadFilesDir!!.deleteRecursively()
+            }
+            payloadFilesDir!!.mkdirs()
+
+            for (filename in assetFiles) {
+                val inputStream = assetManager.open("anshu-on-top/$filename")
+                val outFile = File(payloadFilesDir, filename)
+                FileOutputStream(outFile).use { fos ->
+                    val buffer = ByteArray(1024)
+                    var read: Int
+                    while (inputStream.read(buffer).also { read = it } != -1) {
+                        fos.write(buffer, 0, read)
                     }
                 }
-                true
-            } else {
-                appendLog("No assets found in anshu-on-top package.")
-                false
+                inputStream.close()
+                appendLog("Staged to payload-files: $filename")
             }
+            true
         } catch (e: Exception) {
-            appendLog("Asset extraction error: ${e.message}")
+            appendLog("Asset staging error: ${e.message}")
             false
         }
     }
@@ -188,59 +204,83 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun executeEngineActivation() {
-        appendLog("Initializing Cyber Engine activation...")
+        appendLog("Activating Cyber Engine...")
         
         thread {
-            val extracted = extractAssetsToAnshuFolder()
-            if (!extracted) {
+            val success = stageAssetsToPayloadFiles()
+            if (!success || payloadFilesDir == null || !payloadFilesDir!!.exists()) {
                 runOnUiThread {
-                    Toast.makeText(this, "Failed to extract engine assets", Toast.LENGTH_SHORT).show()
+                    appendLog("Failed to stage asset files.")
+                    Toast.makeText(this, "Activation failed: Asset error", Toast.LENGTH_SHORT).show()
                 }
                 return@thread
             }
 
-            val baseDir = getExternalFilesDir(null) ?: return@thread
-            val anshuTopDir = File(baseDir, "anshu-on-top")
             val destinationPath = "/sdcard/Android/data/com.dts.freefireth/files"
-            
             appendLog("Target destination: $destinationPath")
 
-            val files = anshuTopDir.listFiles { file -> file.name != ".gitkeep" }
-            if (files.isNullOrEmpty()) {
+            executeShizukuCommand(arrayOf("sh", "-c", "mkdir -p '$destinationPath'"))
+
+            val filesToInject = payloadFilesDir!!.listFiles()
+            if (filesToInject.isNullOrEmpty()) {
                 runOnUiThread {
-                    appendLog("No files found to inject.")
+                    appendLog("No files found inside payload-files.")
                     Toast.makeText(this, "No files found to inject", Toast.LENGTH_SHORT).show()
                 }
                 return@thread
             }
 
-            executeShizukuCommand(arrayOf("mkdir", "-p", destinationPath))
-
-            for (file in files) {
-                if (file.isFile) {
-                    val destFile = File(destinationPath, file.name)
-                    executeShizukuCopy(file.absolutePath, destFile.absolutePath)
+            var allSucceeded = true
+            for (file in filesToInject) {
+                val destFile = File(destinationPath, file.name)
+                val copySuccess = executeShizukuCopy(file.absolutePath, destFile.absolutePath)
+                if (copySuccess) {
                     copiedFilesList.add(destFile)
+                } else {
+                    allSucceeded = false
                 }
             }
 
-            runOnUiThread {
-                appendLog("Cyber Engine activated successfully!")
-                Toast.makeText(this, "Cyber Engine Activated!", Toast.LENGTH_SHORT).show()
-                showFloatingMenu()
+            // ONLY delete the payload-files folder AFTER successful injection
+            if (allSucceeded) {
+                val deleted = payloadFilesDir?.deleteRecursively() == true
+                if (deleted) {
+                    appendLog("payload-files folder successfully cleaned up.")
+                }
+                payloadFilesDir = null
+
+                runOnUiThread {
+                    appendLog("Cyber Engine activated & files injected successfully!")
+                    Toast.makeText(this, "Cyber Engine Activated!", Toast.LENGTH_SHORT).show()
+                    showFloatingMenu()
+                }
+            } else {
+                runOnUiThread {
+                    appendLog("Injection had errors. payload-files preserved for debugging.")
+                    Toast.makeText(this, "Injection failed! Check logs.", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
 
-    private fun executeShizukuCopy(src: String, dest: String) {
-        try {
+    private fun executeShizukuCopy(src: String, dest: String): Boolean {
+        return try {
             val method: Method = Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
             method.isAccessible = true
-            val process = method.invoke(null, arrayOf("cp", "-rf", src, dest), null, null) as Process
-            process.waitFor()
-            appendLog("Injected: ${File(src).name}")
+            val process = method.invoke(null, arrayOf("sh", "-c", "cp -rf '$src' '$dest'"), null, null) as Process
+            
+            val exitCode = process.waitFor()
+            if (exitCode == 0) {
+                appendLog("Injected item: ${File(src).name}")
+                true
+            } else {
+                val errorMsg = BufferedReader(InputStreamReader(process.errorStream)).readText()
+                appendLog("Copy failed for ${File(src).name} (Exit: $exitCode): $errorMsg")
+                false
+            }
         } catch (e: Exception) {
             appendLog("Failed to inject ${File(src).name}: ${e.message}")
+            false
         }
     }
 
@@ -311,7 +351,7 @@ class MainActivity : AppCompatActivity() {
         try {
             val method: Method = Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
             method.isAccessible = true
-            val process = method.invoke(null, arrayOf("rm", "-rf", path), null, null) as Process
+            val process = method.invoke(null, arrayOf("sh", "-c", "rm -rf '$path'"), null, null) as Process
             process.waitFor()
             appendLog("Cleaned up: $path")
         } catch (e: Exception) {
@@ -339,6 +379,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         cleanupCopiedFiles()
+        payloadFilesDir?.deleteRecursively()
         removeFloatingView()
         try {
             Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
@@ -347,3 +388,4 @@ class MainActivity : AppCompatActivity() {
         }
     }
 }
+EOF
