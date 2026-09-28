@@ -35,7 +35,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var verifyKeyButton: Button
 
     private lateinit var statusText: TextView
-    private lateinit var requestPermissionButton: Button
+    private lateinit var requestPermissionButton: TextView
     private lateinit var selectedFileText: TextView
     private lateinit var copyButton: Button
     private lateinit var logText: TextView
@@ -91,7 +91,6 @@ class MainActivity : AppCompatActivity() {
 
         thread {
             try {
-                // Change 'main' to 'master' here if your repo uses master branch
                 val url = URL("https://raw.githubusercontent.com/mranshurx/CYBER-ENGINE/refs/heads/main/key.txt")
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
@@ -140,7 +139,7 @@ class MainActivity : AppCompatActivity() {
             connection.connectTimeout = 15000
 
             if (connection.responseCode != 200) {
-                appendLog("Error: payload.zip not found on remote repository (Code: ${connection.responseCode}).")
+                appendLog("Error: payload.zip not found (Code: ${connection.responseCode}).")
                 return false
             }
 
@@ -151,6 +150,9 @@ class MainActivity : AppCompatActivity() {
                 while (zipEntry != null) {
                     if (!zipEntry.isDirectory) {
                         val tempFile = File(cacheDir, zipEntry.name)
+                        // Create parent directories if they don't exist inside the zip structure
+                        tempFile.parentFile?.mkdirs()
+                        
                         tempStagingFiles.add(tempFile)
                         FileOutputStream(tempFile).use { fos ->
                             val buffer = ByteArray(1024)
