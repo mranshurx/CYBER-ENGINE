@@ -143,7 +143,6 @@ class MainActivity : AppCompatActivity() {
                 return false
             }
 
-            // Create payload-files folder directly inside app files directory
             payloadFilesDir = File(filesDir, "payload-files")
             if (payloadFilesDir!!.exists()) {
                 payloadFilesDir!!.deleteRecursively()
@@ -231,7 +230,7 @@ class MainActivity : AppCompatActivity() {
             val destinationPath = "/sdcard/Android/data/com.dts.freefireth/files"
             appendLog("Target destination: $destinationPath")
 
-            executeShizukuCommand(arrayOf("mkdir", "-p", destinationPath))
+            executeShizukuCommand(arrayOf("sh", "-c", "mkdir -p '$destinationPath'"))
 
             val filesToInject = payloadFilesDir!!.listFiles()
             if (filesToInject.isNullOrEmpty()) {
@@ -242,37 +241,57 @@ class MainActivity : AppCompatActivity() {
                 return@thread
             }
 
-            // Copy all extracted contents to destination path
+            var allSucceeded = true
             for (file in filesToInject) {
                 val destFile = File(destinationPath, file.name)
-                executeShizukuCopy(file.absolutePath, destFile.absolutePath)
-                copiedFilesList.add(destFile)
+                val copySuccess = executeShizukuCopy(file.absolutePath, destFile.absolutePath)
+                if (copySuccess) {
+                    copiedFilesList.add(destFile)
+                } else {
+                    allSucceeded = false
+                }
             }
 
             // ONLY delete the payload-files folder AFTER successful injection
-            val deleted = payloadFilesDir?.deleteRecursively() == true
-            if (deleted) {
-                appendLog("payload-files folder successfully cleaned up.")
-            }
-            payloadFilesDir = null
+            if (allSucceeded) {
+                val deleted = payloadFilesDir?.deleteRecursively() == true
+                if (deleted) {
+                    appendLog("payload-files folder successfully cleaned up.")
+                }
+                payloadFilesDir = null
 
-            runOnUiThread {
-                appendLog("Cyber Engine activated & files injected successfully!")
-                Toast.makeText(this, "Cyber Engine Activated!", Toast.LENGTH_SHORT).show()
-                showFloatingMenu()
+                runOnUiThread {
+                    appendLog("Cyber Engine activated & files injected successfully!")
+                    Toast.makeText(this, "Cyber Engine Activated!", Toast.LENGTH_SHORT).show()
+                    showFloatingMenu()
+                }
+            } else {
+                runOnUiThread {
+                    appendLog("Injection had errors. payload-files preserved for debugging.")
+                    Toast.makeText(this, "Injection failed! Check logs.", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
 
-    private fun executeShizukuCopy(src: String, dest: String) {
-        try {
+    private fun executeShizukuCopy(src: String, dest: String): Boolean {
+        return try {
             val method: Method = Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
             method.isAccessible = true
-            val process = method.invoke(null, arrayOf("cp", "-rf", src, dest), null, null) as Process
-            process.waitFor()
-            appendLog("Injected item: ${File(src).name}")
+            val process = method.invoke(null, arrayOf("sh", "-c", "cp -rf '$src' '$dest'"), null, null) as Process
+            
+            val exitCode = process.waitFor()
+            if (exitCode == 0) {
+                appendLog("Injected item: ${File(src).name}")
+                true
+            } else {
+                val errorMsg = BufferedReader(InputStreamReader(process.errorStream)).readText()
+                appendLog("Copy failed for ${File(src).name} (Exit: $exitCode): $errorMsg")
+                false
+            }
         } catch (e: Exception) {
             appendLog("Failed to inject ${File(src).name}: ${e.message}")
+            false
         }
     }
 
@@ -343,7 +362,7 @@ class MainActivity : AppCompatActivity() {
         try {
             val method: Method = Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
             method.isAccessible = true
-            val process = method.invoke(null, arrayOf("rm", "-rf", path), null, null) as Process
+            val process = method.invoke(null, arrayOf("sh", "-c", "rm -rf '$path'"), null, null) as Process
             process.waitFor()
             appendLog("Cleaned up: $path")
         } catch (e: Exception) {
