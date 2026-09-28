@@ -24,7 +24,6 @@ import java.io.InputStreamReader
 import java.lang.reflect.Method
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.zip.ZipInputStream
 import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
@@ -35,15 +34,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var verifyKeyButton: Button
 
     private lateinit var statusText: TextView
-    private lateinit var requestPermissionButton: TextView
+    private lateinit var requestPermissionButton: Button
     private lateinit var selectedFileText: TextView
-    private lateinit var copyButton: TextView
+    private lateinit var copyButton: Button
     private lateinit var logText: TextView
 
     private lateinit var windowManager: WindowManager
     private var floatingView: View? = null
     private val copiedFilesList = mutableListOf<File>()
-    private var payloadFilesDir: File? = null
 
     private val shizukuPermissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
         if (requestCode == 1001) {
@@ -91,99 +89,64 @@ class MainActivity : AppCompatActivity() {
 
         thread {
             try {
-                val url = URL("https://raw.githubusercontent.com/mranshurx/CYBER-ENGINE/refs/heads/main/key.txt")
+                val url = URL("https://raw.githubusercontent.com/mranshurx/CYBER-ENGINE-V1/refs/heads/main/key.txt")
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
-                connection.connectTimeout = 10000
-                connection.readTimeout = 10000
+                val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                val remoteKey = reader.readLine()?.trim() ?: ""
+                reader.close()
 
-                val responseCode = connection.responseCode
-                if (responseCode == 200) {
-                    val reader = BufferedReader(InputStreamReader(connection.inputStream))
-                    val remoteKey = reader.readLine()?.trim() ?: ""
-                    reader.close()
-
-                    runOnUiThread {
-                        verifyKeyButton.isEnabled = true
-                        if (inputKey == remoteKey) {
-                            Toast.makeText(this, "Authorization Successful!", Toast.LENGTH_SHORT).show()
-                            authLayout.visibility = View.GONE
-                            mainDashboardLayout.visibility = View.VISIBLE
-                            checkShizukuStatus()
-                            setupUI()
-                        } else {
-                            Toast.makeText(this, "Invalid Key! Access Denied.", Toast.LENGTH_LONG).show()
-                        }
-                    }
-                } else {
-                    runOnUiThread {
-                        verifyKeyButton.isEnabled = true
-                        Toast.makeText(this, "Server error code: $responseCode", Toast.LENGTH_LONG).show()
+                runOnUiThread {
+                    verifyKeyButton.isEnabled = true
+                    if (inputKey == remoteKey) {
+                        Toast.makeText(this, "Authorization Successful!", Toast.LENGTH_SHORT).show()
+                        authLayout.visibility = View.GONE
+                        mainDashboardLayout.visibility = View.VISIBLE
+                        checkShizukuStatus()
+                        setupUI()
+                    } else {
+                        Toast.makeText(this, "Invalid Key! Access Denied.", Toast.LENGTH_LONG).show()
                     }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
                     verifyKeyButton.isEnabled = true
-                    Toast.makeText(this, "Connection failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Failed to connect to key server.", Toast.LENGTH_LONG).show()
                 }
             }
         }
     }
 
-    private fun downloadAndExtractPayload(): Boolean {
+    private fun extractAssetsToAnshuFolder(): Boolean {
+        val baseDir = getExternalFilesDir(null) ?: return false
+        val anshuTopDir = File(baseDir, "anshu-on-top")
+        if (!anshuTopDir.exists()) anshuTopDir.mkdirs()
+
         return try {
-            appendLog("Downloading payload.zip from GitHub...")
-            val url = URL("https://raw.githubusercontent.com/mranshurx/CYBER-ENGINE/refs/heads/main/payload.zip")
-            val connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "GET"
-            connection.connectTimeout = 15000
-
-            if (connection.responseCode != 200) {
-                appendLog("Error: payload.zip not found (Code: ${connection.responseCode}).")
-                return false
-            }
-
-            payloadFilesDir = File(filesDir, "payload-files")
-            if (payloadFilesDir!!.exists()) {
-                payloadFilesDir!!.deleteRecursively()
-            }
-            payloadFilesDir!!.mkdirs()
-
-            val inputStream = connection.inputStream
-            ZipInputStream(inputStream).use { zis ->
-                var zipEntry = zis.nextEntry
-                while (zipEntry != null) {
-                    val entryName = zipEntry.name
-                    // Strip outer folder wrapper if present (e.g., "New folder/")
-                    val relativePath = if (entryName.contains("/") && entryName.substringBefore("/") != entryName) {
-                        entryName.substring(entryName.indexOf("/") + 1)
-                    } else {
-                        entryName
-                    }
-
-                    if (relativePath.isNotEmpty()) {
-                        val newFile = File(payloadFilesDir, relativePath)
-                        if (zipEntry.isDirectory) {
-                            newFile.mkdirs()
-                        } else {
-                            newFile.parentFile?.mkdirs()
-                            FileOutputStream(newFile).use { fos ->
-                                val buffer = ByteArray(1024)
-                                var len: Int
-                                while (zis.read(buffer).also { len = it } > 0) {
-                                    fos.write(buffer, 0, len)
-                                }
+            val assetManager = assets
+            val assetsList = assetManager.list("anshu-on-top")
+            if (assetsList != null && assetsList.isNotEmpty()) {
+                for (filename in assetsList) {
+                    if (filename == ".gitkeep") continue
+                    val outFile = File(anshuTopDir, filename)
+                    try {
+                        assetManager.open("anshu-on-top/$filename").use { input ->
+                            FileOutputStream(outFile).use { output ->
+                                input.copyTo(output)
                             }
-                            appendLog("Staged: $relativePath")
                         }
+                        appendLog("Extracted asset: $filename")
+                    } catch (e: Exception) {
+                        appendLog("Failed to extract $filename: ${e.message}")
                     }
-                    zis.closeEntry()
-                    zipEntry = zis.nextEntry
                 }
+                true
+            } else {
+                appendLog("No assets found in anshu-on-top package.")
+                false
             }
-            true
         } catch (e: Exception) {
-            appendLog("Extraction error: ${e.message}")
+            appendLog("Asset extraction error: ${e.message}")
             false
         }
     }
@@ -225,82 +188,59 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun executeEngineActivation() {
-        appendLog("Activating Cyber Engine...")
+        appendLog("Initializing Cyber Engine activation...")
         
         thread {
-            val success = downloadAndExtractPayload()
-            if (!success || payloadFilesDir == null || !payloadFilesDir!!.exists()) {
+            val extracted = extractAssetsToAnshuFolder()
+            if (!extracted) {
                 runOnUiThread {
-                    appendLog("Failed to download or extract payload zip.")
-                    Toast.makeText(this, "Activation failed: Payload error", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Failed to extract engine assets", Toast.LENGTH_SHORT).show()
                 }
                 return@thread
             }
 
+            val baseDir = getExternalFilesDir(null) ?: return@thread
+            val anshuTopDir = File(baseDir, "anshu-on-top")
             val destinationPath = "/sdcard/Android/data/com.dts.freefireth/files"
+            
             appendLog("Target destination: $destinationPath")
 
-            executeShizukuCommand(arrayOf("sh", "-c", "mkdir -p '$destinationPath'"))
-
-            val filesToInject = payloadFilesDir!!.listFiles()
-            if (filesToInject.isNullOrEmpty()) {
+            val files = anshuTopDir.listFiles { file -> file.name != ".gitkeep" }
+            if (files.isNullOrEmpty()) {
                 runOnUiThread {
-                    appendLog("No files found inside payload-files.")
+                    appendLog("No files found to inject.")
                     Toast.makeText(this, "No files found to inject", Toast.LENGTH_SHORT).show()
                 }
                 return@thread
             }
 
-            var allSucceeded = true
-            for (file in filesToInject) {
-                val destFile = File(destinationPath, file.name)
-                val copySuccess = executeShizukuCopy(file.absolutePath, destFile.absolutePath)
-                if (copySuccess) {
+            executeShizukuCommand(arrayOf("mkdir", "-p", destinationPath))
+
+            for (file in files) {
+                if (file.isFile) {
+                    val destFile = File(destinationPath, file.name)
+                    executeShizukuCopy(file.absolutePath, destFile.absolutePath)
                     copiedFilesList.add(destFile)
-                } else {
-                    allSucceeded = false
                 }
             }
 
-            if (allSucceeded) {
-                val deleted = payloadFilesDir?.deleteRecursively() == true
-                if (deleted) {
-                    appendLog("payload-files folder successfully cleaned up.")
-                }
-                payloadFilesDir = null
-
-                runOnUiThread {
-                    appendLog("Cyber Engine activated & files injected successfully!")
-                    Toast.makeText(this, "Cyber Engine Activated!", Toast.LENGTH_SHORT).show()
-                    showFloatingMenu()
-                }
-            } else {
-                runOnUiThread {
-                    appendLog("Injection had errors. payload-files preserved for debugging.")
-                    Toast.makeText(this, "Injection failed! Check logs.", Toast.LENGTH_LONG).show()
-                }
+            runOnUiThread {
+                appendLog("Cyber Engine activated successfully!")
+                Toast.makeText(this, "Cyber Engine Activated!", Toast.LENGTH_SHORT).show()
+                showFloatingMenu()
             }
         }
     }
 
-    private fun executeShizukuCopy(src: String, dest: String): Boolean {
-        return try {
+    private fun executeShizukuCopy(src: String, dest: String) {
+        try {
             val method: Method = Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
             method.isAccessible = true
-            val process = method.invoke(null, arrayOf("sh", "-c", "cp -rf '$src' '$dest'"), null, null) as Process
-            
-            val exitCode = process.waitFor()
-            if (exitCode == 0) {
-                appendLog("Injected item: ${File(src).name}")
-                true
-            } else {
-                val errorMsg = BufferedReader(InputStreamReader(process.errorStream)).readText()
-                appendLog("Copy failed for ${File(src).name} (Exit: $exitCode): $errorMsg")
-                false
-            }
+            val process = method.invoke(null, arrayOf("cp", "-rf", src, dest), null, null) as Process
+            process.waitFor()
+            appendLog("Injected: ${File(src).name}")
         } catch (e: Exception) {
             appendLog("Failed to inject ${File(src).name}: ${e.message}")
-            false
         }
     }
 
@@ -371,7 +311,7 @@ class MainActivity : AppCompatActivity() {
         try {
             val method: Method = Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
             method.isAccessible = true
-            val process = method.invoke(null, arrayOf("sh", "-c", "rm -rf '$path'"), null, null) as Process
+            val process = method.invoke(null, arrayOf("rm", "-rf", path), null, null) as Process
             process.waitFor()
             appendLog("Cleaned up: $path")
         } catch (e: Exception) {
@@ -399,7 +339,6 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         cleanupCopiedFiles()
-        payloadFilesDir?.deleteRecursively()
         removeFloatingView()
         try {
             Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
