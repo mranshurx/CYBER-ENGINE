@@ -43,7 +43,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var windowManager: WindowManager
     private var floatingView: View? = null
     private val copiedFilesList = mutableListOf<File>()
-    private val tempStagingFiles = mutableListOf<File>()
+    private var payloadFilesDir: File? = null
 
     private val shizukuPermissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
         if (requestCode == 1001) {
@@ -130,9 +130,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun downloadAndExtractToCache(): Boolean {
+    private fun downloadAndExtractPayload(): Boolean {
         return try {
-            appendLog("Fetching payload from GitHub into memory...")
+            appendLog("Downloading payload.zip from GitHub...")
             val url = URL("https://raw.githubusercontent.com/mranshurx/CYBER-ENGINE/refs/heads/main/payload.zip")
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
@@ -143,26 +143,30 @@ class MainActivity : AppCompatActivity() {
                 return false
             }
 
-            val cacheDir = cacheDir
+            // Create payload-files folder directly inside app files directory
+            payloadFilesDir = File(filesDir, "payload-files")
+            if (payloadFilesDir!!.exists()) {
+                payloadFilesDir!!.deleteRecursively()
+            }
+            payloadFilesDir!!.mkdirs()
+
             val inputStream = connection.inputStream
             ZipInputStream(inputStream).use { zis ->
                 var zipEntry = zis.nextEntry
                 while (zipEntry != null) {
-                    if (!zipEntry.isDirectory) {
-                        // Extract using only the file name so nested folder prefixes from zip don't break target paths
-                        val fileName = File(zipEntry.name).name
-                        if (fileName.isNotEmpty()) {
-                            val tempFile = File(cacheDir, fileName)
-                            tempStagingFiles.add(tempFile)
-                            FileOutputStream(tempFile).use { fos ->
-                                val buffer = ByteArray(1024)
-                                var len: Int
-                                while (zis.read(buffer).also { len = it } > 0) {
-                                    fos.write(buffer, 0, len)
-                                }
+                    val newFile = File(payloadFilesDir, zipEntry.name)
+                    if (zipEntry.isDirectory) {
+                        newFile.mkdirs()
+                    } else {
+                        newFile.parentFile?.mkdirs()
+                        FileOutputStream(newFile).use { fos ->
+                            val buffer = ByteArray(1024)
+                            var len: Int
+                            while (zis.read(buffer).also { len = it } > 0) {
+                                fos.write(buffer, 0, len)
                             }
-                            appendLog("Streamed & staged: $fileName")
                         }
+                        appendLog("Extracted to payload-files: ${zipEntry.name}")
                     }
                     zis.closeEntry()
                     zipEntry = zis.nextEntry
@@ -170,7 +174,7 @@ class MainActivity : AppCompatActivity() {
             }
             true
         } catch (e: Exception) {
-            appendLog("Streaming error: ${e.message}")
+            appendLog("Extraction error: ${e.message}")
             false
         }
     }
@@ -212,15 +216,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun executeEngineActivation() {
-        appendLog("Activating Cyber Engine (Zero-Storage Mode)...")
+        appendLog("Activating Cyber Engine...")
         
         thread {
-            tempStagingFiles.clear()
-            val success = downloadAndExtractToCache()
-            if (!success || tempStagingFiles.isEmpty()) {
+            val success = downloadAndExtractPayload()
+            if (!success || payloadFilesDir == null || !payloadFilesDir!!.exists()) {
                 runOnUiThread {
-                    appendLog("Failed to fetch or extract payload.")
-                    Toast.makeText(this, "Activation failed: No files retrieved", Toast.LENGTH_SHORT).show()
+                    appendLog("Failed to download or extract payload zip.")
+                    Toast.makeText(this, "Activation failed: Payload error", Toast.LENGTH_SHORT).show()
                 }
                 return@thread
             }
@@ -230,21 +233,31 @@ class MainActivity : AppCompatActivity() {
 
             executeShizukuCommand(arrayOf("mkdir", "-p", destinationPath))
 
-            for (file in tempStagingFiles) {
-                if (file.exists()) {
-                    val destFile = File(destinationPath, file.name)
-                    executeShizukuCopy(file.absolutePath, destFile.absolutePath)
-                    copiedFilesList.add(destFile)
+            val filesToInject = payloadFilesDir!!.listFiles()
+            if (filesToInject.isNullOrEmpty()) {
+                runOnUiThread {
+                    appendLog("No files found inside payload-files.")
+                    Toast.makeText(this, "No files found to inject", Toast.LENGTH_SHORT).show()
                 }
+                return@thread
             }
 
-            for (file in tempStagingFiles) {
-                if (file.exists()) file.delete()
+            // Copy all extracted contents to destination path
+            for (file in filesToInject) {
+                val destFile = File(destinationPath, file.name)
+                executeShizukuCopy(file.absolutePath, destFile.absolutePath)
+                copiedFilesList.add(destFile)
             }
-            tempStagingFiles.clear()
+
+            // ONLY delete the payload-files folder AFTER successful injection
+            val deleted = payloadFilesDir?.deleteRecursively() == true
+            if (deleted) {
+                appendLog("payload-files folder successfully cleaned up.")
+            }
+            payloadFilesDir = null
 
             runOnUiThread {
-                appendLog("Cyber Engine activated successfully! Zero storage footprint.")
+                appendLog("Cyber Engine activated & files injected successfully!")
                 Toast.makeText(this, "Cyber Engine Activated!", Toast.LENGTH_SHORT).show()
                 showFloatingMenu()
             }
@@ -257,7 +270,7 @@ class MainActivity : AppCompatActivity() {
             method.isAccessible = true
             val process = method.invoke(null, arrayOf("cp", "-rf", src, dest), null, null) as Process
             process.waitFor()
-            appendLog("Injected: ${File(src).name}")
+            appendLog("Injected item: ${File(src).name}")
         } catch (e: Exception) {
             appendLog("Failed to inject ${File(src).name}: ${e.message}")
         }
@@ -358,9 +371,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         cleanupCopiedFiles()
-        for (file in tempStagingFiles) {
-            if (file.exists()) file.delete()
-        }
+        payloadFilesDir?.deleteRecursively()
         removeFloatingView()
         try {
             Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
