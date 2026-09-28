@@ -1,4 +1,3 @@
-cat << 'EOF' > app/src/main/java/com/example/shizukufilecopier/MainActivity.kt
 package com.example.shizukufilecopier
 
 import android.content.Intent
@@ -241,7 +240,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // ONLY delete the payload-files folder AFTER successful injection
             if (allSucceeded) {
                 val deleted = payloadFilesDir?.deleteRecursively() == true
                 if (deleted) {
@@ -388,4 +386,3 @@ class MainActivity : AppCompatActivity() {
         }
     }
 }
-EOF
