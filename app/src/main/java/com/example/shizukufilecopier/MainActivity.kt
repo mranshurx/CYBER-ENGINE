@@ -140,7 +140,8 @@ class MainActivity : AppCompatActivity() {
                 return false
             }
 
-            payloadFilesDir = File(filesDir, "payload-files")
+            // FIXED: Use external files dir so Shizuku (shell user) has permission to read it
+            payloadFilesDir = File(getExternalFilesDir(null), "payload-files")
             if (payloadFilesDir!!.exists()) {
                 payloadFilesDir!!.deleteRecursively()
             }
@@ -240,6 +241,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            // ONLY delete the payload-files folder AFTER successful injection
             if (allSucceeded) {
                 val deleted = payloadFilesDir?.deleteRecursively() == true
                 if (deleted) {
