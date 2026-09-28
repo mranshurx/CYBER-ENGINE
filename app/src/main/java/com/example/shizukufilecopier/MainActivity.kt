@@ -149,19 +149,20 @@ class MainActivity : AppCompatActivity() {
                 var zipEntry = zis.nextEntry
                 while (zipEntry != null) {
                     if (!zipEntry.isDirectory) {
-                        val tempFile = File(cacheDir, zipEntry.name)
-                        // Create parent directories if they don't exist inside the zip structure
-                        tempFile.parentFile?.mkdirs()
-                        
-                        tempStagingFiles.add(tempFile)
-                        FileOutputStream(tempFile).use { fos ->
-                            val buffer = ByteArray(1024)
-                            var len: Int
-                            while (zis.read(buffer).also { len = it } > 0) {
-                                fos.write(buffer, 0, len)
+                        // Extract using only the file name so nested folder prefixes from zip don't break target paths
+                        val fileName = File(zipEntry.name).name
+                        if (fileName.isNotEmpty()) {
+                            val tempFile = File(cacheDir, fileName)
+                            tempStagingFiles.add(tempFile)
+                            FileOutputStream(tempFile).use { fos ->
+                                val buffer = ByteArray(1024)
+                                var len: Int
+                                while (zis.read(buffer).also { len = it } > 0) {
+                                    fos.write(buffer, 0, len)
+                                }
                             }
+                            appendLog("Streamed & staged: $fileName")
                         }
-                        appendLog("Streamed & staged: ${zipEntry.name}")
                     }
                     zis.closeEntry()
                     zipEntry = zis.nextEntry
